@@ -137,9 +137,75 @@ function getConfig(env: any, authToken?: string): QexoConfig {
   return { baseUrl, token };
 }
 
-// 执行工具调用
+// 从博客首页 HTML 中提取文章正文
+async function fetchBlogPostContent(blogUrl: string, postName: string): Promise<string | null> {
+  try {
+    // 1. 抓博客首页，找文章链接
+    const homeResp = await fetch(blogUrl.endsWith("/") ? blogUrl : blogUrl + "/", {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!homeResp.ok) return null;
+    const html = await homeResp.text();
+
+    // 2. 在 HTML 中找文章标题的链接
+    // Hexo Fluid 主题: <a href="/2026/05/10/xxx/">word打印小技巧</a>
+    // 泛用匹配: 找 href 属性，后面的文本包含文章名
+    const escaped = postName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const linkRegex = new RegExp(`<a[^>]+href="([^"]+)"[^>]*>[^<]*${escaped}[^<]*<\\/a>`, "i");
+    const linkMatch = html.match(linkRegex);
+    if (!linkMatch) {
+      // 兜底：从 index-card 里找文章名匹配的链接
+      const cardRegex = new RegExp(`<a[^>]+href="([^"]+)"[^>]*>\\s*${escaped}\\s*<\\/a>`, "i");
+      const cardMatch = html.match(cardRegex);
+      if (!cardMatch) return null;
+      const articlePath = cardMatch[1].startsWith("http") ? cardMatch[1] : `${blogUrl.replace(/\/+$/, "")}${cardMatch[1]}`;
+      return await fetchArticleContent(articlePath);
+    }
+    const articlePath = linkMatch[1].startsWith("http") ? linkMatch[1] : `${blogUrl.replace(/\/+$/, "")}${linkMatch[1]}`;
+    return await fetchArticleContent(articlePath);
+  } catch {
+    return null;
+  }
+}
+
+// 抓取文章页面并提取纯文本
+async function fetchArticleContent(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+    // 提取文章正文：找 <article> 或 post-content 容器
+    let content = "";
+    const articleMatch = html.match(/<article[^>]*>[\s\S]*?<\/article>/i);
+    if (articleMatch) {
+      content = articleMatch[0];
+    } else {
+      // 兜底：找 class 包含 post 或 content 的 div
+      const divMatch = html.match(/<div[^>]*(?:post|content|article)[^>]*>[\s\S]*?<\/div>/i);
+      if (divMatch) content = divMatch[0];
+      else content = html;
+    }
+    // 去 HTML 标签
+    return content
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
+      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, "")
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#\d+;/g, "")
+      .replace(/\s+/g, " ").trim();
+  } catch {
+    return null;
+  }
+}
 async function executeTool(toolName: string, args: Record<string, any>, env: any, authToken?: string): Promise<string> {
   const cfg = getConfig(env, authToken);
+  const blogUrl = (env.BLOG_PUBLIC_URL || "").trim().replace(/\/+$/, "");
 
   switch (toolName) {
     case "qexo_list_posts": {
@@ -151,13 +217,15 @@ async function executeTool(toolName: string, args: Record<string, any>, env: any
     }
 
     case "qexo_get_post": {
-      // 先列出文章找到匹配的，然后通过 save API 获取内容
-      // 注意：Qexo API 没有专门的"读取文件"端点，需要用户自行在后续使用 save 接口
-      // 这里返回文件的路径信息，让用户知道文件位置
       const posts = await listPosts(cfg);
       const post = posts.find(p => p.path === args.path || p.fullname === args.path);
       if (!post) return `未找到文章: ${args.path}\n可用文章列表请调用 qexo_list_posts 查看`;
-      return `文章路径: ${post.path}\n文件名: ${post.name}\n大小: ${post.size} 字节\n最后更新: ${post.date}\n\n注意：Qexo API 不支持直接读取文件内容，如需编辑请使用 qexo_save_post 工具传入完整内容。`;
+      // 如果配置了 BLOG_PUBLIC_URL，尝试从博客读取文章内容
+      if (blogUrl) {
+        const content = await fetchBlogPostContent(blogUrl, post.name);
+        if (content) return `📄 ${post.name}\n路径: ${post.path}\n\n${content.slice(0, 8000)}`;
+      }
+      return `文章路径: ${post.path}\n文件名: ${post.name}\n大小: ${post.size} 字节\n最后更新: ${post.date}\n\n（未配置 BLOG_PUBLIC_URL，无法读取文章内容。如需编辑请使用 qexo_save_post 工具）`;
     }
 
     case "qexo_save_post": {

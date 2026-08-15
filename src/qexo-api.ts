@@ -64,9 +64,9 @@ interface QexoResponse<T = any> {
   count?: number;
 }
 
-// 发送 GET 请求到 Qexo API
+// 发送 GET 请求到 Qexo API（Django 需要 URL 以 / 结尾）
 async function get<T>(cfg: QexoConfig, path: string, params?: Record<string, string | undefined>): Promise<QexoResponse<T>> {
-  const url = new URL(`${cfg.baseUrl}/pub/${path}`);
+  const url = new URL(`${cfg.baseUrl}/pub/${path}${path.endsWith("/") ? "" : "/"}`);
   url.searchParams.set("token", cfg.token);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
@@ -93,14 +93,15 @@ async function get<T>(cfg: QexoConfig, path: string, params?: Record<string, str
   }
 }
 
-// 发送 POST 请求到 Qexo API（form 格式）
+// 发送 POST 请求到 Qexo API（form 格式，Django 需要 URL 以 / 结尾）
 async function postForm<T>(cfg: QexoConfig, path: string, data: Record<string, any>): Promise<QexoResponse<T>> {
   const body = new URLSearchParams();
   body.set("token", cfg.token);
   for (const [k, v] of Object.entries(data)) {
     if (v !== undefined && v !== null) body.set(k, String(v));
   }
-  const fullUrl = `${cfg.baseUrl}/pub/${path}`;
+  const pathSlash = `${path}${path.endsWith("/") ? "" : "/"}`;
+  const fullUrl = `${cfg.baseUrl}/pub/${pathSlash}`;
   const resp = await fetch(fullUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
