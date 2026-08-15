@@ -3,6 +3,7 @@
 # ============================================
 # 只需设置 1 个 Secret：
 #   - CLOUDFLARE_API_TOKEN
+# QEXO_BASE_URL 和 BLOG_PUBLIC_URL 在 Cloudflare Dashboard 中设置
 
 name: Deploy to Cloudflare Workers
 
@@ -32,13 +33,10 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          secrets: |
-            QEXO_BASE_URL
-            BLOG_PUBLIC_URL
 
       - name: Deployment Info
         run: |
           echo "✅ Qexo MCP Proxy 部署完成!"
-          echo "🔧 请在 GitHub → Settings → Secrets 添加以下变量："
+          echo "🔧 部署后请在 Cloudflare Dashboard 中设置环境变量："
           echo "  - QEXO_BASE_URL: Qexo 管理后台地址"
           echo "  - BLOG_PUBLIC_URL: 博客前台地址（可选）"
