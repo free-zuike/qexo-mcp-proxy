@@ -1,0 +1,15 @@
+{
+  "name": "qexo-mcp-proxy",
+  "version": "1.0.0",
+  "description": "Qexo MCP 代理 - 将 Qexo 博客 API 包装为 MCP 工具",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250201.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.107.0"
+  }
+}

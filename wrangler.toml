@@ -1,0 +1,6 @@
+name = "qexo-mcp-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-07-28"
+
+# 环境变量 - 部署时设置（Qexo 域名，API Token 通过 Authorization 头传入）
+# QEXO_BASE_URL = "https://your-qexo-domain.com"
