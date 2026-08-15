@@ -137,48 +137,71 @@ function getConfig(env: any, authToken?: string): QexoConfig {
   return { baseUrl, token };
 }
 
-// 通过博客的 local-search.xml 查找并读取文章内容
-// Hexo Fluid 主题默认生成 /local-search.xml，包含所有文章的标题、URL 和全文内容
+// 通过博客的搜索索引查找并读取文章内容
+// 支持多种引擎格式：Hexo / Hugo / Jekyll / Valaxy，按顺序尝试
+const SEARCH_INDEX_PATHS = ["/local-search.xml", "/search.json", "/index.json"];
+
 async function fetchBlogPostContent(blogUrl: string, postName: string): Promise<string | null> {
-  try {
-    const base = blogUrl.endsWith("/") ? blogUrl.slice(0, -1) : blogUrl;
-    const resp = await fetch(`${base}/local-search.xml`, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!resp.ok) return null;
-    const xml = await resp.text();
+  const base = blogUrl.endsWith("/") ? blogUrl.slice(0, -1) : blogUrl;
+  const escaped = postName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const titleRe = new RegExp(escaped, "i");
 
-    // 在 XML 中找匹配文章名的 <entry>
-    // 格式: <entry><title>文章名</title><url>/2026/05/10/xxx/</url><content>...</content></entry>
-    const entries = xml.split("</entry>");
-    const escaped = postName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const titleRegex = new RegExp(`<title>\\s*${escaped}\\s*<\\/title>`, "i");
+  for (const path of SEARCH_INDEX_PATHS) {
+    try {
+      const resp = await fetch(`${base}${path}`, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!resp.ok) continue;
+      const text = await resp.text();
 
-    for (const entry of entries) {
-      if (!titleRegex.test(entry)) continue;
-      // 提取内容
-      const contentMatch = entry.match(/<content[^>]*>([\s\S]*)<\/content>/i);
-      if (!contentMatch) return null;
-      const content = contentMatch[1]
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#\d+;/g, "")
-        .replace(/&apos;/g, "'")
-        .replace(/\s+/g, " ").trim();
-      if (content) return content;
-      // 如果内容为空，通过 URL 抓取文章页面
-      const urlMatch = entry.match(/<url>([^<]+)<\/url>/i);
-      if (urlMatch) {
-        const articleUrl = urlMatch[1].startsWith("http") ? urlMatch[1] : `${base}${urlMatch[1]}`;
-        return await fetchArticleContent(articleUrl);
+      if (path.endsWith(".xml")) {
+        // Hexo local-search.xml 格式
+        const entries = text.split("</entry>");
+        for (const entry of entries) {
+          const titleMatch = entry.match(/<title>\s*([^<]+)\s*<\/title>/i);
+          if (!titleMatch || !titleRe.test(titleMatch[1])) continue;
+          const contentMatch = entry.match(/<content[^>]*>([\s\S]*)<\/content>/i);
+          if (contentMatch) return cleanHtml(contentMatch[1]);
+          // 内容为空时通过 URL 抓取
+          const urlMatch = entry.match(/<url>([^<]+)<\/url>/i);
+          if (urlMatch) {
+            const articleUrl = urlMatch[1].startsWith("http") ? urlMatch[1] : `${base}${urlMatch[1]}`;
+            return await fetchArticleContent(articleUrl);
+          }
+        }
+      } else {
+        // JSON 格式（Hugo / Jekyll / Valaxy）
+        try {
+          const data = JSON.parse(text);
+          const items = Array.isArray(data) ? data : (data.posts || data.pages || data.items || []);
+          for (const item of items) {
+            const title = item.title || "";
+            if (!titleRe.test(title)) continue;
+            const content = item.content || item.body || item.text || item.description || "";
+            if (content) return cleanHtml(content);
+            // 通过 URL 抓取
+            if (item.url || item.link || item.permalink) {
+              const url = item.url || item.link || item.permalink;
+              const articleUrl = url.startsWith("http") ? url : `${base}${url.startsWith("/") ? url : "/" + url}`;
+              return await fetchArticleContent(articleUrl);
+            }
+          }
+        } catch {}
       }
-    }
-    return null;
-  } catch {
-    return null;
+    } catch {}
   }
+  return null;
+}
+
+function cleanHtml(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#\d+;/g, "")
+    .replace(/&apos;/g, "'")
+    .replace(/\s+/g, " ").trim();
 }
 
 // 抓取文章页面并提取纯文本
