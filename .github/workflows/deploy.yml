@@ -1,0 +1,44 @@
+# ============================================
+# Qexo MCP Proxy - 自动部署到 Cloudflare Workers
+# ============================================
+# 只需设置 1 个 Secret：
+#   - CLOUDFLARE_API_TOKEN
+
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          secrets: |
+            QEXO_BASE_URL
+            BLOG_PUBLIC_URL
+
+      - name: Deployment Info
+        run: |
+          echo "✅ Qexo MCP Proxy 部署完成!"
+          echo "🔧 请在 GitHub → Settings → Secrets 添加以下变量："
+          echo "  - QEXO_BASE_URL: Qexo 管理后台地址"
+          echo "  - BLOG_PUBLIC_URL: 博客前台地址（可选）"
