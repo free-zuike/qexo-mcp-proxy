@@ -137,33 +137,45 @@ function getConfig(env: any, authToken?: string): QexoConfig {
   return { baseUrl, token };
 }
 
-// 从博客首页 HTML 中提取文章正文
+// 通过博客的 local-search.xml 查找并读取文章内容
+// Hexo Fluid 主题默认生成 /local-search.xml，包含所有文章的标题、URL 和全文内容
 async function fetchBlogPostContent(blogUrl: string, postName: string): Promise<string | null> {
   try {
-    // 1. 抓博客首页，找文章链接
-    const homeResp = await fetch(blogUrl.endsWith("/") ? blogUrl : blogUrl + "/", {
+    const base = blogUrl.endsWith("/") ? blogUrl.slice(0, -1) : blogUrl;
+    const resp = await fetch(`${base}/local-search.xml`, {
       headers: { "User-Agent": "Mozilla/5.0" },
       signal: AbortSignal.timeout(15000),
     });
-    if (!homeResp.ok) return null;
-    const html = await homeResp.text();
+    if (!resp.ok) return null;
+    const xml = await resp.text();
 
-    // 2. 在 HTML 中找文章标题的链接
-    // Hexo Fluid 主题: <a href="/2026/05/10/xxx/">word打印小技巧</a>
-    // 泛用匹配: 找 href 属性，后面的文本包含文章名
+    // 在 XML 中找匹配文章名的 <entry>
+    // 格式: <entry><title>文章名</title><url>/2026/05/10/xxx/</url><content>...</content></entry>
+    const entries = xml.split("</entry>");
     const escaped = postName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const linkRegex = new RegExp(`<a[^>]+href="([^"]+)"[^>]*>[^<]*${escaped}[^<]*<\\/a>`, "i");
-    const linkMatch = html.match(linkRegex);
-    if (!linkMatch) {
-      // 兜底：从 index-card 里找文章名匹配的链接
-      const cardRegex = new RegExp(`<a[^>]+href="([^"]+)"[^>]*>\\s*${escaped}\\s*<\\/a>`, "i");
-      const cardMatch = html.match(cardRegex);
-      if (!cardMatch) return null;
-      const articlePath = cardMatch[1].startsWith("http") ? cardMatch[1] : `${blogUrl.replace(/\/+$/, "")}${cardMatch[1]}`;
-      return await fetchArticleContent(articlePath);
+    const titleRegex = new RegExp(`<title>\\s*${escaped}\\s*<\\/title>`, "i");
+
+    for (const entry of entries) {
+      if (!titleRegex.test(entry)) continue;
+      // 提取内容
+      const contentMatch = entry.match(/<content[^>]*>([\s\S]*)<\/content>/i);
+      if (!contentMatch) return null;
+      const content = contentMatch[1]
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#\d+;/g, "")
+        .replace(/&apos;/g, "'")
+        .replace(/\s+/g, " ").trim();
+      if (content) return content;
+      // 如果内容为空，通过 URL 抓取文章页面
+      const urlMatch = entry.match(/<url>([^<]+)<\/url>/i);
+      if (urlMatch) {
+        const articleUrl = urlMatch[1].startsWith("http") ? urlMatch[1] : `${base}${urlMatch[1]}`;
+        return await fetchArticleContent(articleUrl);
+      }
     }
-    const articlePath = linkMatch[1].startsWith("http") ? linkMatch[1] : `${blogUrl.replace(/\/+$/, "")}${linkMatch[1]}`;
-    return await fetchArticleContent(articlePath);
+    return null;
   } catch {
     return null;
   }
