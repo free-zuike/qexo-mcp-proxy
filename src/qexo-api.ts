@@ -73,15 +73,24 @@ async function get<T>(cfg: QexoConfig, path: string, params?: Record<string, str
       if (v !== undefined) url.searchParams.set(k, v);
     }
   }
-  const resp = await fetch(url.toString(), {
+  const fullUrl = url.toString();
+  const resp = await fetch(fullUrl, {
     headers: { "Accept": "application/json" },
     signal: AbortSignal.timeout(15000),
   });
+  const text = await resp.text();
   if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
     throw new Error(`Qexo API ${resp.status}: ${text.slice(0, 200)}`);
   }
-  return resp.json();
+  const ct = resp.headers.get("content-type") || "";
+  if (!ct.includes("application/json") && !ct.includes("json")) {
+    throw new Error(`Qexo 返回了非 JSON 数据 (Content-Type: ${ct})，请检查 QEXO_BASE_URL 是否正确。请求地址: ${fullUrl.replace(cfg.token, "***")}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e: any) {
+    throw new Error(`Qexo 返回的数据无法解析为 JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 // 发送 POST 请求到 Qexo API（form 格式）
@@ -91,17 +100,26 @@ async function postForm<T>(cfg: QexoConfig, path: string, data: Record<string, a
   for (const [k, v] of Object.entries(data)) {
     if (v !== undefined && v !== null) body.set(k, String(v));
   }
-  const resp = await fetch(`${cfg.baseUrl}/pub/${path}`, {
+  const fullUrl = `${cfg.baseUrl}/pub/${path}`;
+  const resp = await fetch(fullUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
     body: body.toString(),
     signal: AbortSignal.timeout(15000),
   });
+  const text = await resp.text();
   if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
     throw new Error(`Qexo API ${resp.status}: ${text.slice(0, 200)}`);
   }
-  return resp.json();
+  const ct = resp.headers.get("content-type") || "";
+  if (!ct.includes("application/json") && !ct.includes("json")) {
+    throw new Error(`Qexo 返回了非 JSON 数据 (Content-Type: ${ct})，请检查 QEXO_BASE_URL 是否正确。请求地址: ${fullUrl}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e: any) {
+    throw new Error(`Qexo 返回的数据无法解析为 JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 // ========== 博客内容管理 ==========
