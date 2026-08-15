@@ -18,13 +18,13 @@ const TOOLS = [
   },
   {
     name: "qexo_get_post",
-    description: "【Qexo】获取单篇文章的完整内容。当用户想查看某篇文章的详细内容、阅读文章时调用",
+    description: "【Qexo】获取单篇文章的完整内容。当用户想查看某篇文章的详细内容、阅读文章时调用，支持按文章名或路径搜索",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "文章路径，如 source/_posts/my-article.md（必填）" },
+        name: { type: "string", description: "文章名，如 word打印小技巧（与 path 二选一）" },
+        path: { type: "string", description: "文章路径，如 source/_posts/word打印小技巧.md（与 name 二选一）" },
       },
-      required: ["path"],
     },
   },
   {
@@ -218,14 +218,27 @@ async function executeTool(toolName: string, args: Record<string, any>, env: any
 
     case "qexo_get_post": {
       const posts = await listPosts(cfg);
-      const post = posts.find(p => p.path === args.path || p.fullname === args.path);
-      if (!post) return `未找到文章: ${args.path}\n可用文章列表请调用 qexo_list_posts 查看`;
+      // 支持按 name 或 path 查找
+      const searchName = (args.name || "").trim();
+      const searchPath = (args.path || "").trim();
+      let post;
+      if (searchPath) {
+        post = posts.find(p => p.path === searchPath || p.fullname === searchPath);
+      } else if (searchName) {
+        post = posts.find(p => p.name === searchName || p.name.includes(searchName));
+      } else {
+        return "请提供文章名（name）或路径（path）";
+      }
+      if (!post) {
+        const hint = searchName || searchPath;
+        return `未找到文章${hint ? `: ${hint}` : ""}\n可用文章列表请调用 qexo_list_posts 查看`;
+      }
       // 如果配置了 BLOG_PUBLIC_URL，尝试从博客读取文章内容
       if (blogUrl) {
         const content = await fetchBlogPostContent(blogUrl, post.name);
         if (content) return `📄 ${post.name}\n路径: ${post.path}\n\n${content.slice(0, 8000)}`;
       }
-      return `文章路径: ${post.path}\n文件名: ${post.name}\n大小: ${post.size} 字节\n最后更新: ${post.date}\n\n（未配置 BLOG_PUBLIC_URL，无法读取文章内容。如需编辑请使用 qexo_save_post 工具）`;
+      return `文章路径: ${post.path}\n文件名: ${post.name}\n大小: ${post.size} 字节\n最后更新: ${post.date}\n\n（未配置 BLOG_PUBLIC_URL，无法读取文章内容）`;
     }
 
     case "qexo_save_post": {
