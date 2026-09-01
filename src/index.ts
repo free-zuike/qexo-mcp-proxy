@@ -2,7 +2,7 @@
 // 实现 MCP 2026-07-28 无状态协议，将 Qexo REST API 包装为 MCP 工具
 // 部署后在微信机器人管理后台添加 MCP 服务器即可使用
 
-import { QexoConfig, listPosts, listPages, saveFile, deleteFile, listFriends, addFriend, deleteFriend, listTalks, saveTalk, deleteTalk, getBlogStatus, listImages } from "./qexo-api";
+import { QexoConfig, listPosts, listPages, listConfigs, saveFile, deleteFile, listFriends, addFriend, editFriend, deleteFriend, listTalks, saveTalk, deleteTalk, getBlogStatus, listImages } from "./qexo-api";
 
 // MCP 工具定义
 const TOOLS = [
@@ -92,6 +92,33 @@ const TOOLS = [
     },
   },
   {
+    name: "qexo_edit_friend",
+    description: "【Qexo】编辑友链。当用户想修改友链的名称、链接、描述等信息时调用",
+    inputSchema: {
+      type: "object",
+      properties: {
+        time: { type: "string", description: "友链 ID（必填，通过 qexo_list_friends 获取，该接口返回的 time 字段即 ID）" },
+        name: { type: "string", description: "友链名称（必填）" },
+        url: { type: "string", description: "友链 URL（必填）" },
+        image: { type: "string", description: "可选：头像 URL" },
+        description: { type: "string", description: "可选：描述" },
+        status: { type: "string", description: "可选：显示/隐藏" },
+      },
+      required: ["time", "name", "url"],
+    },
+  },
+  {
+    name: "qexo_delete_friend",
+    description: "【Qexo】删除友链。当用户想删除友情链接时调用",
+    inputSchema: {
+      type: "object",
+      properties: {
+        time: { type: "string", description: "友链 ID（必填，通过 qexo_list_friends 获取）" },
+      },
+      required: ["time"],
+    },
+  },
+  {
     name: "qexo_list_talks",
     description: "【Qexo】列出说说列表。当用户想查看博客的说说/动态时调用",
     inputSchema: {
@@ -104,15 +131,37 @@ const TOOLS = [
   },
   {
     name: "qexo_save_talk",
-    description: "【Qexo】发表说说/动态。当用户想发说说、发动态时调用",
+    description: "【Qexo】发表或编辑说说/动态。当用户想发说说、发动态、修改说说时调用",
     inputSchema: {
       type: "object",
       properties: {
         content: { type: "string", description: "说说内容（必填）" },
+        id: { type: "string", description: "可选：说说 ID。传入则为编辑指定说说，否则新建" },
         tags: { type: "string", description: "可选：标签，JSON 数组格式，如 [\"生活\",\"随笔\"]" },
         values: { type: "string", description: "可选：自定义字段，JSON 格式" },
       },
       required: ["content"],
+    },
+  },
+  {
+    name: "qexo_delete_talk",
+    description: "【Qexo】删除说说/动态。当用户想删除某条说说时调用",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "说说 ID（必填，通过 qexo_list_talks 获取）" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "qexo_list_configs",
+    description: "【Qexo】列出博客配置文件列表（如 _config.yml 等）。当用户想查看博客配置文件时调用",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keyword: { type: "string", description: "可选：搜索关键词" },
+      },
     },
   },
   {
@@ -238,6 +287,20 @@ async function fetchArticleContent(url: string): Promise<string | null> {
     return null;
   }
 }
+
+// 格式化时间：支持 Unix 秒级时间戳或已格式化的日期字符串
+function formatTime(t: string | number | undefined): string {
+  if (!t) return "未知";
+  const n = Number(t);
+  // 10位或13位数字视为 Unix 时间戳
+  if (/^\d{10}$/.test(String(t)) || /^\d{13}$/.test(String(t))) {
+    const d = new Date(n * (String(t).length === 10 ? 1000 : 1));
+    const pad = (x: number) => String(x).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  return String(t);
+}
+
 async function executeTool(toolName: string, args: Record<string, any>, env: any, authToken?: string): Promise<string> {
   const cfg = getConfig(env, authToken);
   const blogUrl = (env.BLOG_PUBLIC_URL || "").trim().replace(/\/+$/, "");
@@ -296,7 +359,7 @@ async function executeTool(toolName: string, args: Record<string, any>, env: any
 
     case "qexo_blog_status": {
       const status = await getBlogStatus(cfg);
-      return `📊 博客状态\n文章数量: ${status.posts} 篇\n最后更新: ${status.last || "未知"}`;
+      return `📊 博客状态\n文章数量: ${status.posts} 篇\n最后更新: ${formatTime(status.last)}`;
     }
 
     case "qexo_list_friends": {
@@ -312,18 +375,41 @@ async function executeTool(toolName: string, args: Record<string, any>, env: any
       return `✅ ${result}`;
     }
 
+    case "qexo_edit_friend": {
+      const result = await editFriend(cfg, args as any);
+      return `✅ ${result}`;
+    }
+
+    case "qexo_delete_friend": {
+      const result = await deleteFriend(cfg, args.time);
+      return `✅ ${result}`;
+    }
+
     case "qexo_list_talks": {
       const { talks, count } = await listTalks(cfg, args.page || 1, args.limit || 10);
       if (talks.length === 0) return "没有找到说说";
       return `共有 ${count} 条说说，显示第 ${args.page || 1} 页：\n\n` +
         talks.map((t, i) =>
-          `${i + 1}. ${t.content.slice(0, 200)}${t.content.length > 200 ? "..." : ""}\n   时间: ${t.time}${t.like ? ` | 👍 ${t.like}` : ""}`
+          `${i + 1}. ${t.content.slice(0, 200)}${t.content.length > 200 ? "..." : ""}\n   时间: ${formatTime(t.time)}${t.like ? ` | 👍 ${t.like}` : ""}`
         ).join("\n\n");
     }
 
     case "qexo_save_talk": {
       const result = await saveTalk(cfg, args as any);
       return `✅ ${result.msg}${result.id ? `\nID: ${result.id}` : ""}`;
+    }
+
+    case "qexo_delete_talk": {
+      const result = await deleteTalk(cfg, args.id);
+      return `✅ ${result}`;
+    }
+
+    case "qexo_list_configs": {
+      const configs = await listConfigs(cfg, args.keyword);
+      if (configs.length === 0) return "没有找到配置文件";
+      return configs.map((c, i) =>
+        `${i + 1}. ${c.name}\n   路径: ${c.path}\n   日期: ${c.date}`
+      ).join("\n\n");
     }
 
     case "qexo_list_images": {

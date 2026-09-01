@@ -139,6 +139,14 @@ export async function listPages(cfg: QexoConfig, keyword?: string): Promise<Qexo
   return res.pages || [];
 }
 
+/** 获取配置文件列表 */
+export async function listConfigs(cfg: QexoConfig, keyword?: string): Promise<QexoPost[]> {
+  const res = await get(cfg, "get_configs", { s: keyword });
+  if (!res.status) throw new Error(res.msg || "获取配置文件列表失败");
+  // 响应格式与 get_posts/get_pages 相同（可能是 posts 或 data 字段）
+  return res.posts || (res.data as QexoPost[]) || [];
+}
+
 /** 保存/更新文件内容 */
 export async function saveFile(cfg: QexoConfig, filePath: string, content: string, commitMsg?: string): Promise<string> {
   const res = await postForm(cfg, "save", { file: filePath, content, commitchange: commitMsg || "" });
@@ -167,6 +175,13 @@ export async function addFriend(cfg: QexoConfig, data: { name: string; url: stri
   const res = await postForm(cfg, "add_friend", data);
   if (!res.status) throw new Error(res.msg || "添加友链失败");
   return res.msg || "添加成功";
+}
+
+/** 编辑友链（time 为友链 ID） */
+export async function editFriend(cfg: QexoConfig, data: { time: string; name: string; url: string; image?: string; description?: string; status?: string }): Promise<string> {
+  const res = await postForm(cfg, "edit_friend", data);
+  if (!res.status) throw new Error(res.msg || "编辑友链失败");
+  return res.msg || "编辑成功";
 }
 
 /** 删除友链 */

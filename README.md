@@ -36,11 +36,15 @@ API Token 通过 `Authorization: Bearer` 头传入（在微信机器人管理后
 | `qexo_save_post` | 保存/更新文章 | ❌ |
 | `qexo_delete_post` | 删除文章 | ❌ |
 | `qexo_list_pages` | 列出页面 | ❌ |
+| `qexo_list_configs` | 列出配置文件 | ❌ |
 | `qexo_blog_status` | 博客状态 | ❌ |
 | `qexo_list_friends` | 友链列表 | ❌ |
 | `qexo_add_friend` | 添加友链 | ❌ |
+| `qexo_edit_friend` | 编辑友链 | ❌ |
+| `qexo_delete_friend` | 删除友链 | ❌ |
 | `qexo_list_talks` | 说说列表 | ❌ |
-| `qexo_save_talk` | 发表说说 | ❌ |
+| `qexo_save_talk` | 发表/编辑说说 | ❌ |
+| `qexo_delete_talk` | 删除说说 | ❌ |
 | `qexo_list_images` | 图片列表 | ❌ |
 
 ## 使用示例
