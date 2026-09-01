@@ -497,6 +497,35 @@ export default {
       });
     }
 
+    // MCP Streamable HTTP: GET 建立 SSE 事件流（用于接收服务器推送）
+    if (request.method === "GET") {
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const encoder = new TextEncoder();
+      // 发送初始连接确认后保持流打开
+      writer.write(encoder.encode(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "connected" } })}\n\n`));
+      // Worker 会保持连接直到客户端断开；定期心跳防止代理中断
+      const heartbeat = setInterval(() => {
+        writer.write(encoder.encode(": keep-alive\n\n")).catch(() => {});
+      }, 15000);
+      request.signal.addEventListener("abort", () => {
+        clearInterval(heartbeat);
+        writer.close().catch(() => {});
+      });
+      return new Response(readable, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+        },
+      });
+    }
+
+    // MCP Streamable HTTP: DELETE 结束会话
+    if (request.method === "DELETE") {
+      return new Response(null, { status: 200 });
+    }
+
     // 只接受 POST
     if (request.method !== "POST") {
       return new Response(JSON.stringify({ error: "Method not allowed" }), {
