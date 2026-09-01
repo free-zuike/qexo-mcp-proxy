@@ -363,15 +363,31 @@ async function handleToolsCall(params: any, env: any, authToken?: string): Promi
   }
 }
 
+// MCP initialize 握手
+function handleInitialize(params: any): any {
+  return {
+    protocolVersion: params?.protocolVersion || "2025-06-18",
+    capabilities: { tools: { listChanged: false } },
+    serverInfo: { name: "qexo-mcp-proxy", version: "1.0.0" },
+  };
+}
+
 // 分发 JSON-RPC 请求
 async function handleJSONRPC(body: any, env: any, authToken?: string): Promise<any> {
   const method = body?.method;
-  const id = body?.id ?? 1;
+  const id = body?.id;
   const params = body?.params;
+
+  // JSON-RPC 通知（无 id）不返回响应
+  if (id === undefined) return null;
 
   try {
     let result: any;
-    if (method === "tools/list") {
+    if (method === "initialize") {
+      result = handleInitialize(params);
+    } else if (method === "ping") {
+      result = {};
+    } else if (method === "tools/list") {
       result = handleToolsList();
     } else if (method === "tools/call") {
       result = await handleToolsCall(params, env, authToken);
@@ -420,6 +436,10 @@ export default {
 
     // 处理 JSON-RPC 请求
     const response = await handleJSONRPC(body, env, authToken);
+    // JSON-RPC 通知：202 Accepted，无响应体
+    if (response === null) {
+      return new Response(null, { status: 202 });
+    }
     return new Response(JSON.stringify(response), {
       headers: { "Content-Type": "application/json" },
     });
